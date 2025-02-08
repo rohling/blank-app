@@ -8,6 +8,23 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores  import FAISS
 from langchain_groq import ChatGroq
 from langchain.chains import RetrievalQA
+
+
+# Define o diretório onde o PDF será salvo
+diretorio_pdf = 'uploads'
+
+# Passo 3: Gerar embeddings
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+# Configurar o caminho do diretório para o índice
+INDEX_FOLDER = "faiss_index"
+
+
+
+# Configurar embeddings
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+
 # Define a função de extração de texto primeiro
 def extract_text_from_pdf(pdf_path):
     text = ""
@@ -20,8 +37,7 @@ def extract_text_from_pdf(pdf_path):
                 break
     return text
 
-# Define o diretório onde o PDF será salvo
-diretorio_pdf = 'uploads'
+
 
 # Verifica se o diretório existe, se não, cria um
 if not os.path.exists(diretorio_pdf):
@@ -57,12 +73,37 @@ if arquivo_pdf is not None:
         length_function=len
     )
     chunks = text_splitter.split_text(text)
-    # Passo 3: Gerar embeddings
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-
+  
     # Passo 4: Armazenar vetores
-    vector_store = FAISS.from_texts(chunks, embeddings)
+    if os.path.exists(INDEX_FOLDER):
+       
+        vector_store = FAISS.load_local(
+            folder_path=INDEX_FOLDER,  # Use o caminho do diretório
+            embeddings=embeddings,
+            allow_dangerous_deserialization=True
+        )
+        # Carregar o índice existente sem segurança
+        # vector_store = FAISS.load_local(INDEX_FILE, embeddings)
+        # Adicionar novos vetores ao índice existente
+        vector_store.add_texts(chunks)
+        st.success("Novos vetores adicionados ao índice FAISS existente.")
+    else:
+        # Criar o diretório se não existir
+        if not os.path.exists(INDEX_FOLDER):
+            os.makedirs(INDEX_FOLDER)
+        # Criar um novo índice se não existir
+        vector_store = FAISS.from_texts(chunks, embeddings)
+        st.success("Novo índice FAISS criado.")
+        st.write(f"Total de vetores no índice: {vector_store.index.ntotal}")
+        #vector_store = FAISS.from_texts(chunks, embeddings)
 
+    arquivo_pdf = None
+    # Salvar o índice atualizado
+    vector_store.save_local(INDEX_FOLDER)
+    st.success(f"Índice FAISS salvo em {INDEX_FOLDER}")
+
+    # Opcional: Mostrar a quantidade de vetores no índice
+    st.write(f"Total de vetores no índice: {vector_store.index.ntotal}")
 
 # Mostra o texto extraído
 #st.text_area("Texto extraído do PDF:", value=text, height=200)
@@ -76,17 +117,29 @@ texto_inserido = st.text_input('Digite seu texto aqui:')
 
 # Cria um botão para processar o texto
 if st.button('Processar Texto'):
+
+    if not os.path.exists(INDEX_FOLDER):
+        st.error("Por favor, faça upload de um PDF primeiro para criar o índice.")
+        st.stop()
+
+# # Carrega o índice FAISS diretamente da pasta
+    loaded_vector_store = FAISS.load_local(
+        folder_path=INDEX_FOLDER,
+        embeddings=embeddings,
+        allow_dangerous_deserialization=True
+    )
+    # Configura o modelo e o QA
     llm = ChatGroq(
         temperature=0.6,
         model_name="deepseek-r1-distill-llama-70b",
         groq_api_key='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'
     )
 
+    
     qa = RetrievalQA.from_chain_type(
         llm=llm,
         chain_type="stuff",
-        retriever=vector_store.as_retriever(),
-        # chain_type_kwargs={"prompt": prompt},
+        retriever=loaded_vector_store.as_retriever(search_kwargs={"k": 3}),
         return_source_documents=True
     )
 

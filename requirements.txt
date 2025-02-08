@@ -2,6 +2,7 @@ streamlit
 pdfplumber
 langchain
 langchain-groq 
-langchain-community
+langchain_huggingface
+torch>=2.0.0
 faiss-cpu
 sentence-transformers
